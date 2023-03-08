@@ -12,7 +12,7 @@ class CombinedSystem:
         if not isinstance(atoms_list, list):
             atoms_list = [atoms_list]
         if not isinstance(calculators_list, list):
-            calculators_list [calculators_list]
+            calculators_list = [calculators_list]
 
         self.atoms = atoms_list
         # Check that the number of atoms objects and calculators match
@@ -28,9 +28,16 @@ class CombinedSystem:
         for atoms in atoms_list[1:]:
             self.system += atoms
 
-        # Set a Lennard-Jones calculator for the combined system
-        self.lj = LennardJones(epsilon=epsilon, sigma=sigma, cutoff=cutoff)
-        self.system.set_calculator(self.lj)
+        # Add non-bonded interactions 
+        if len(atoms_list) > 1:
+            num_mols=len(atoms_list)
+            self.lj = LennardJones(epsilon=epsilon, sigma=sigma, cutoff=cutoff)
+            for i in range(num_mols):
+                for j in range(i+1,num_mols):
+                    for atom_one in atoms_list[i]:
+                        for atom_two in atoms_list[j]:
+                            self.system.add_nonbonded(self.lj, atoms_one, atoms_two)
+                    
 
     def get_energy(self):
         # Calculate the energy of the combined system
