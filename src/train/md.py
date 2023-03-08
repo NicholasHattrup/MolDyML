@@ -52,8 +52,6 @@ def get_unique_frames(xyz_file, top_file=None, num_clusters=None):
     # Compute the RMSD between each pair of frames
     print('Calculating RMSD')
     for i in range(num_frames):
-        print(f'RMSD for frame: {i}')
-        #rmsd = md.rmsd(traj, traj, frame=i)
         rmsd = md.rmsd(traj[i:], traj[i])
         rmsd_matrix[i, i:] = rmsd
         rmsd_matrix[:,i] = rmsd_matrix[i,:] # # by symmetry of the rmsd 
@@ -64,12 +62,13 @@ def get_unique_frames(xyz_file, top_file=None, num_clusters=None):
 
 
     # Perform k-means clustering
-    kmeans = KMeans(n_clusters=num_clusters, n_jobs=4, n_init='auto')
+    kmeans = KMeans(n_clusters=num_clusters, n_init='auto')
+    print('Starting K_means Clustering')
     kmeans.fit(rmsd_matrix)
     # Find the most representative frame in each cluster
     most_representative_frames = []
+    most_represenative_frames_indexes = []
     for cluster_id in range(num_clusters):
-        print(f'cluster: {cluster_id}')
         # Get the indices of the frames in the current cluster
         cluster_indices = np.where(kmeans.labels_ == cluster_id)[0]
         
@@ -81,25 +80,10 @@ def get_unique_frames(xyz_file, top_file=None, num_clusters=None):
         most_representative_frame_index = cluster_indices[np.argmin(avg_rmsd_values)]
         most_representative_frame = traj[most_representative_frame_index]
         most_representative_frames.append(most_representative_frame)
+        most_represenative_frames_indexes.append(most_representative_frame_index)
 
     # Print the most representative frames
-    for i, frame in enumerate(most_representative_frames):
-        print(f'Most representative frame for cluster {i}:')
-        print(frame)
-    exit()
-    # Determine the number of clusters that contain 30% of the total frames
-    n_frames = traj.n_frames
-    n_clusters = 1
-    while md.cluster.rmsd.hierarchical.n_frames_in_clusters(clustering, n_clusters) < 0.3*n_frames:
-        n_clusters += 1
-
-    # Get the indices of the 30% most unique configurations
-    cluster_indices = md.cluster.rmsd.hierarchical.get_indexes_of_top_x_percent_most_populated_clusters(clustering, n_clusters, 0.3)
-
-    # Get the corresponding frames from the trajectory
-    unique_frames = traj[cluster_indices]
-
-    return unique_frames
+    return most_representative_frames, most_represenative_frames_indexes
 
 
 
@@ -136,6 +120,7 @@ def combine_pos_force_xyz(pos_file, force_file, output_file=None):
     num_atoms=int(lines[0])
     num_configs=len(lines) // (num_atoms+2)
     atomic_symbols=[]
+    descriptions=[]
     for i in range(2,num_atoms+2):
         atomic_symbols.append(lines[i].strip().split()[0])
     i=0
@@ -235,38 +220,3 @@ def concatenate_xyz_files(directories, substring, extension='.xyz', output_file=
 
 
 
-directory = '.'
-xyz_files = [f for f in os.listdir(directory) if f.endswith('.xyz')]
-temperatures=[450,600,750]
-
-job= {'''
-! XTB  MD
-%PAL NPROCS 10 END
-%md
-    timestep 0.5_fs
-    initvel {0}_k
-    thermostat berendsen {1}_k timecon 10_fs
-    dump position stride 1 filename "{2}_positions.xyz"
-    dump force stride 1 filename "{3}_forces.xyz"
-    run 2000
-end
- *xyzfile 0 1 {4}
-'''}
-
-
-'''
-for xyz_file in xyz_files:
-    file_to_write=xyz_file.replace('.xyz','.inp')
-    temperature=random.choice(temperatures)
-    bname=xyz_file.replace('.xyz','')
-    job_to_write=job.format(temperature,temperature,bname,bname,xyz_file)
-    with open(os.path.join(directory,file_to_write), 'w') as f:
-        f.write(job_to_write)
-    
-'''
-
-
-if __name__ == '__main__':
-    pass
-else:
-    pass

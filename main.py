@@ -21,11 +21,12 @@ print(configs.configs)
 #md.combine_pos_force_xyz(pos_file='/Users/nickhattrup/Documents/research/MolDyML/geometries/training_data/dynamics/MD/3_monomer/positions.xyz',
 #                         force_file='/Users/nickhattrup/Documents/research/MolDyML/geometries/training_data/dynamics/MD/3_monomer/forces.xyz')
 
-#md.get_unique_frames('/Users/nickhattrup/Documents/research/MolDyML/geometries/training_data/dynamics/MD/3_monomer/positions.xyz')
 
+'''
+_, unique_indexes=md.get_unique_frames('/home/nhattrup/MolDyML/data/3_monomer/positions.xyz')
 
-
-
+random.extract_configurations('data/3_monomer/combined.xyz', unique_indexes)
+'''
 
 
 if __name__ == '__main__':
