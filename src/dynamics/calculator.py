@@ -1,5 +1,9 @@
 from ase import Atoms
+from ase.calculators.calculator import Calculator
 from ase.calculators.lj import LennardJones
+from xtb.ase.calculator import XTB
+from ase.neighborlist import NeighborList
+from nequip.ase import nequip_calculator
 from ase.build import attach
 
 
@@ -7,39 +11,52 @@ from ase.build import attach
 # Class for creating a multi-calculator ASE atoms object using ASE built-in calculators or custom calclulators (i.e. MLIPs!)
 
 
-class CombinedSystem:
-    def __init__(self, atoms_list, calculators_list, epsilon=0.1, sigma=3.0, cutoff=10.0):
-        if not isinstance(atoms_list, list):
-            atoms_list = [atoms_list]
-        if not isinstance(calculators_list, list):
-            calculators_list [calculators_list]
-
-        self.atoms = atoms_list
-        # Check that the number of atoms objects and calculators match
-        assert len(atoms_list) == len(calculators_list)
-
-        # Set the calculators for each atoms object
-        for i, atoms in enumerate(atoms_list):
-            if calculators_list[i] is not None:
-                atoms.set_calculator(calculators_list[i])
-
-        # Combine the atoms objects into a single system
-        self.system = atoms_list[0]
-        for atoms in atoms_list[1:]:
-            self.system += atoms
-
-        # Set a Lennard-Jones calculator for the combined system
-        self.lj = LennardJones(epsilon=epsilon, sigma=sigma, cutoff=cutoff)
-        self.system.set_calculator(self.lj)
-
-    def get_energy(self):
-        # Calculate the energy of the combined system
-        return self.system.get_potential_energy()
+class MyCalculator(Calculator):
+    """Calculator that combines QM/ML Interatomic Potential and Long-Range closed-form potentials for a system of multiple molecules."""
     
-
-    def build(self): # Given the atoms objects, place them in a simulation box without overlap
-        system = self.atoms[0]
-        for i in range(1, len(self.atoms)):
-            system = attach.attach_randomly(system, self.atoms[i], distance=5)
+    def __init__(self, molecules=None, lj_params=None, lj_cutoff=None):
+        """Initialize the calculator."""
+        Calculator.__init__(self)
+        self.molecules = molecules
+        self.lj_params = lj_params
+        self.lj_cutoff = lj_cutoff
+    
+    def calculate(self, atoms=None, properties=['energy'], system_changes='all'):
+        """Calculate the energy of the system."""
+        # Set up DFTB calculator for each molecule
+        for i, mol in enumerate(self.molecules):
+            xtb_calc = XTB(mol=mol)
+            mol.set_calculator(xtb_calc)
+        
+        # Set up Lennard-Jones calculator for atoms between molecules
+        lj_atoms = self.get_intermolecular_atoms(self.molecules, self.lj_cutoff)
+        lj_calc = LennardJones(**self.lj_params)
+        lj_atoms.set_calculator(lj_calc)
+        
+        # Calculate the energy of the system
+        energy = 0.0
+        for mol in self.molecules:
+            energy += mol.get_potential_energy()
+        energy += lj_atoms.get_potential_energy()
+        
+        atoms.set_calculator(self)
+        atoms.set_potential_energy(energy)
+    
+    def get_potential_energy(self, atoms=None, force_consistent=False):
+        """Get the potential energy of the system."""
+        return atoms.get_potential_energy()
+    
+    def get_intermolecular_atoms(self, molecules, cutoff):
+        """Get the atoms between different molecules."""
+        nl = NeighborList([cutoff / 2] * len(molecules), self_interaction=False, bothways=True)
+        positions = [mol.get_positions() for mol in molecules]
+        nl.update(positions)
+        lj_atoms = []
+        for i, _ in enumerate(molecules[:-1]):
+            for j, _ in enumerate(molecules[i+1:]):
+                for offset, d in nl.get_neighbors(i, j+i+1):
+                    if d < cutoff:
+                        lj_atoms.append(self.atoms[offset])
+        return self.atoms[lj_atoms]
     
         
