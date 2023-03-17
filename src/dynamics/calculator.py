@@ -1,62 +1,95 @@
 from ase import Atoms
 from ase.calculators.calculator import Calculator
-from ase.calculators.lj import LennardJones
+from nequip.ase import NequIPCalculator
 from xtb.ase.calculator import XTB
 from ase.neighborlist import NeighborList
 from nequip.ase import nequip_calculator
 from ase.build import attach
+from ase.calculators.calculator import Calculator, all_properties
+from ase.calculators.calculator import PropertyNotImplementedError
+import numpy as np
 
 
 
 # Class for creating a multi-calculator ASE atoms object using ASE built-in calculators or custom calclulators (i.e. MLIPs!)
 
 
-class MyCalculator(Calculator):
-    """Calculator that combines QM/ML Interatomic Potential and Long-Range closed-form potentials for a system of multiple molecules."""
-    
-    def __init__(self, molecules=None, lj_params=None, lj_cutoff=None):
-        """Initialize the calculator."""
+class poly_NequIP(Calculator):
+    """Composite calculator that combines the results of two calculators."""
+
+    def __init__(self, calc1, calc2):
         Calculator.__init__(self)
-        self.molecules = molecules
-        self.lj_params = lj_params
-        self.lj_cutoff = lj_cutoff
-    
-    def calculate(self, atoms=None, properties=['energy'], system_changes='all'):
-        """Calculate the energy of the system."""
-        # Set up DFTB calculator for each molecule
-        for i, mol in enumerate(self.molecules):
-            xtb_calc = XTB(mol=mol)
-            mol.set_calculator(xtb_calc)
+        self.calc1 = calc1 #Machine learning or QM calculator 
+        self.calc2 = calc2 #Long range calculator 
+
+    def calculate(self, molecules=None, mask=None, properties=all_properties):
+        for molecule in molecules:
+            self.calc1.calculate(molecule, properties)
+        if mask is None:
+            mask = np.True_(shape=())
         
-        # Set up Lennard-Jones calculator for atoms between molecules
-        lj_atoms = self.get_intermolecular_atoms(self.molecules, self.lj_cutoff)
-        lj_calc = LennardJones(**self.lj_params)
-        lj_atoms.set_calculator(lj_calc)
         
-        # Calculate the energy of the system
-        energy = 0.0
-        for mol in self.molecules:
-            energy += mol.get_potential_energy()
-        energy += lj_atoms.get_potential_energy()
-        
-        atoms.set_calculator(self)
-        atoms.set_potential_energy(energy)
-    
-    def get_potential_energy(self, atoms=None, force_consistent=False):
-        """Get the potential energy of the system."""
-        return atoms.get_potential_energy()
-    
-    def get_intermolecular_atoms(self, molecules, cutoff):
-        """Get the atoms between different molecules."""
-        nl = NeighborList([cutoff / 2] * len(molecules), self_interaction=False, bothways=True)
-        positions = [mol.get_positions() for mol in molecules]
-        nl.update(positions)
-        lj_atoms = []
-        for i, _ in enumerate(molecules[:-1]):
-            for j, _ in enumerate(molecules[i+1:]):
-                for offset, d in nl.get_neighbors(i, j+i+1):
-                    if d < cutoff:
-                        lj_atoms.append(self.atoms[offset])
-        return self.atoms[lj_atoms]
+
+        '''
+        self.calc1.calculate(atoms, properties)
+        self.calc2.calculate(atoms, properties)
+        self.results = {}
+        for prop in properties:
+            if prop in self.calc1.results and prop in self.calc2.results:
+                self.results[prop] = self.calc1.results[prop] + self.calc2.results[prop]
+            elif prop in self.calc1.results:
+                self.results[prop] = self.calc1.results[prop]
+            elif prop in self.calc2.results:
+                self.results[prop] = self.calc2.results[prop]
+            else:
+                raise PropertyNotImplementedError(prop)
+
+
+        '''
+
+
+
+class PolyCalculator(Calculator):
+    def __init__(self, ml_model, epsilon, sigma, n_atoms_molecule_1, **kwargs):
+        super().__init__(**kwargs)
+        self.ml_model = ml_model
+        self.epsilon = epsilon
+        self.sigma = sigma
+        self.n_atoms_molecule_1 = n_atoms_molecule_1
+
+    def lj_force(self, r, epsilon, sigma):
+        q = (sigma / r) ** 6
+        return -48 * epsilon * q * (q - 0.5) / r
+
+    def calculate(self, atoms=None, properties=None, system_changes=None):
+        super().calculate(atoms, properties, system_changes)
+
+        positions = atoms.get_positions()
+        n_atoms = len(positions)
+
+        # Calculate intramolecular potential using the ML model
+        intramolecular_energy = 0
+        forces = np.zeros((n_atoms, 3))
+
+        for molecule_atoms in [positions[:self.n_atoms_molecule_1], positions[self.n_atoms_molecule_1:]]:
+            intramolecular_energy += self.ml_model.predict_energy(molecule_atoms)
+            forces += self.ml_model.predict_forces(molecule_atoms)
+
+        # Calculate intermolecular potential using the LJ potential
+        intermolecular_energy = 0
+        for i in range(self.n_atoms_molecule_1):
+            for j in range(self.n_atoms_molecule_1, n_atoms):
+                r_vec = positions[i] - positions[j]
+                r = np.linalg.norm(r_vec)
+                intermolecular_energy += lj_potential(r, self.epsilon, self.sigma)
+
+                f_ij = self.lj_force(r, self.epsilon, self.sigma) * r_vec / r
+                forces[i] += f_ij
+                forces[j] -= f_ij
+
+        total_energy = intramolecular_energy + intermolecular_energy
+
+        self.results["energy"] = total_energy
+        self.results["forces"] = forces
     
         

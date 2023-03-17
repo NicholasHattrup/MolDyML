@@ -1,0 +1,25 @@
+Geometry = GenFormat { 
+    <<< "geo_end.gen" 
+} 
+ 
+Hamiltonian = DFTB{ 
+   MaxAngularMomentum = { 
+      C = "p" 
+      H = "s" 
+      O = "p" 
+   } 
+   SlaterKosterFiles = Type2FileNames{ 
+      Prefix = /Users/nickhattrup/Downloads/mio-1-1/ 
+      Separator = "-" 
+      Suffix = ".skf" 
+      } 
+   } 
+Options { 
+   WriteResultsTag = Yes 
+} 
+ParserOptions { 
+   IgnoreUnprocessedNodes = Yes  
+} 
+Analysis { 
+   CalculateForces = Yes  
+} 
